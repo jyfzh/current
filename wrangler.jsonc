@@ -1,0 +1,34 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "current",
+	"main": "build/index.js",
+	"compatibility_date": "2026-05-11",
+	"build": {
+		"command": "cargo install -q worker-build && worker-build --release"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "your-database-id-here"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "CACHE",
+			"id": "your-kv-id-here"
+		}
+	],
+	"triggers": {
+		"crons": [
+			"0 */1 * * *"
+		]
+	},
+	"vars": {
+		"CURRENT_MAX_CONCURRENCY": "5",
+		"CURRENT_FEED_STALE_SECONDS": "3600",
+		"CURRENT_STARTUP_FETCH": "true",
+		"CURRENT_CACHE_TTL_AGGREGATE": "600",
+		"CURRENT_CACHE_TTL_STRUCTURAL": "600",
+		"CURRENT_FEVER_ITEMS_PER_PAGE": "50"
+	}
+}

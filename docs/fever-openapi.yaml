@@ -1,0 +1,886 @@
+openapi: 3.0.3
+info:
+  title: Fever API
+  description: |
+    Fever API Public Beta — provides basic syncing and consuming of content
+    from a remote Fever RSS reader installation. The API's primary focus is
+    maintaining a local cache of the data in a remote Fever installation.
+
+    ## Response Format
+    By default all responses are JSON. Pass `api=xml` to receive XML responses
+    (the top-level XML element is named `response`).
+
+    ## Authentication
+    All requests must be authenticated with a `POST`ed `api_key`. The value of
+    `api_key` is the MD5 checksum of the account's email address and password
+    concatenated with a colon:
+
+    ```
+    api_key = md5(email + ":" + password)
+    ```
+
+    ## Parameter Handling
+    This API accepts parameters from both query strings and POSTed form data.
+    When a key appears in both places, the POSTed value takes precedence.
+  version: "1.14"
+  contact:
+    name: Fever Support
+    url: https://feedafever.com/contact
+  license:
+    name: Proprietary
+    url: https://feedafever.com/terms
+
+servers:
+  - url: https://{domain}/fever
+    description: Fever installation
+    variables:
+      domain:
+        default: yourdomain.com
+        description: Domain of your Fever installation
+
+security:
+  - apiKey: []
+
+tags:
+  - name: Auth
+    description: Authentication
+  - name: Groups
+    description: Feed groups
+  - name: Feeds
+    description: RSS/Atom feeds
+  - name: Favicons
+    description: Favicon images for feeds
+  - name: Items
+    description: Feed items (articles)
+  - name: Links
+    description: Hot links
+  - name: Sync
+    description: Sync helpers for local cache maintenance
+  - name: Write
+    description: Mark items/feeds/groups as read, saved, or unsaved
+
+paths:
+  /:
+    get:
+      operationId: authenticate
+      summary: Authenticate
+      description: |
+        Base request with no data arguments. Returns auth status and
+        `last_refreshed_on_time`. Useful for validating credentials.
+      tags: [Auth]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+      responses:
+        "200":
+          description: Authentication response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Authentication failed (`auth=0`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  # ─────────────────── READ ───────────────────
+
+  /groups:
+    get:
+      operationId: getGroups
+      summary: Get groups
+      description: |
+        Returns all feed groups and feed-to-group relationships.
+        The "Kindling" super group (feeds with `is_spark=0`) and the
+        "Sparks" super group (feeds with `is_spark=1`) are **not** included.
+      tags: [Groups]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+      responses:
+        "200":
+          description: Groups list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupsResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/GroupsResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /feeds:
+    get:
+      operationId: getFeeds
+      summary: Get feeds
+      description: |
+        Returns all feeds and feed-to-group relationships.
+        The "All Items" super feed is not included. For user-created
+        groups and the "Kindling" super group, limit to feeds with
+        `is_spark=0`. For the "Sparks" super group, limit to feeds
+        with `is_spark=1`.
+      tags: [Feeds]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+      responses:
+        "200":
+          description: Feeds list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedsResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/FeedsResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /favicons:
+    get:
+      operationId: getFavicons
+      summary: Get favicons
+      description: |
+        Returns all favicons. Each favicon's `data` is a base64-encoded
+        image prefixed by its MIME type, suitable for use with the `data:`
+        protocol (e.g. `image/gif;base64,...`).
+      tags: [Favicons]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+      responses:
+        "200":
+          description: Favicons list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaviconsResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/FaviconsResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /items:
+    get:
+      operationId: getItems
+      summary: Get items
+      description: |
+        Returns feed items (articles). Three optional arguments control
+        which items are included:
+
+        - `since_id` — highest id of locally cached items; returns the next
+          50 items newer than this id. Repeat until the `items` array is empty.
+        - `max_id` — lowest id of locally cached items (or 0 initially);
+          returns up to 50 items older than this id. *(API v2)*
+        - `with_ids` — comma-separated list of specific item ids
+          (max 50). *(API v2)*
+
+        Without these parameters the default response contains items that
+        have been recently published across all feeds.
+      tags: [Items]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+        - name: since_id
+          in: query
+          description: Return items with ids greater than this value.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: max_id
+          in: query
+          description: Return items with ids less than or equal to this value. *(added in API v2)*
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: with_ids
+          in: query
+          description: Comma-separated list of specific item ids (max 50). *(added in API v2)*
+          schema:
+            type: string
+          example: "101,102,103"
+      responses:
+        "200":
+          description: Items list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemsResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/ItemsResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /links:
+    get:
+      operationId: getLinks
+      summary: Get hot links
+      description: |
+        Returns hot links. By default this is equivalent to:
+
+        ```
+        ?api&links&offset=0&range=7&page=1
+        ```
+
+        i.e. the first page of hot links from the past 7 days, starting now.
+
+        **Caveats:**
+        - Hot link temperatures are calculated in real-time; do **not**
+          cache hot links in the same relational manner as items, feeds,
+          groups, and favicons.
+        - A hot link can only be "saved" when `is_item` equals `1`.
+      tags: [Links]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+        - name: offset
+          in: query
+          description: Time offset in seconds from now.
+          schema:
+            type: integer
+            format: int64
+            default: 0
+            minimum: 0
+        - name: range
+          in: query
+          description: Length of time range in days.
+          schema:
+            type: integer
+            default: 7
+            minimum: 1
+        - name: page
+          in: query
+          description: Page number for pagination.
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+      responses:
+        "200":
+          description: Hot links list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinksResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/LinksResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /unread_item_ids:
+    get:
+      operationId: getUnreadItemIds
+      summary: Get unread item ids
+      description: |
+        Returns a comma-separated list of unread item ids. Use this to
+        keep your local cache in sync with the remote Fever installation.
+        One of `unread_item_ids` or `saved_item_ids` is also returned
+        when an item's read/saved state is changed via the write endpoint.
+      tags: [Sync]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+      responses:
+        "200":
+          description: Unread item ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnreadItemIdsResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/UnreadItemIdsResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /saved_item_ids:
+    get:
+      operationId: getSavedItemIds
+      summary: Get saved item ids
+      description: |
+        Returns a comma-separated list of saved (starred/bookmarked)
+        item ids. Use this to keep your local cache in sync.
+      tags: [Sync]
+      parameters:
+        - $ref: "#/components/parameters/ApiParam"
+      responses:
+        "200":
+          description: Saved item ids
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedItemIdsResponse"
+            application/xml:
+              schema:
+                $ref: "#/components/schemas/SavedItemIdsResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  # ─────────────────── WRITE ───────────────────
+
+  /write:
+    post:
+      operationId: writeItemState
+      summary: Mark item state
+      description: |
+        Mark an individual item as **read**, **saved**, or **unsaved**.
+        The request body is `application/x-www-form-urlencoded` and must
+        include:
+
+        | Parameter | Value |
+        |-----------|-------|
+        | `mark`    | `item` |
+        | `as`      | `read`, `saved`, or `unsaved` |
+        | `id`      | Item id to modify |
+
+        On success the response will also include `unread_item_ids` or
+        `saved_item_ids` as appropriate.
+      tags: [Write]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [mark, as, id]
+              properties:
+                mark:
+                  type: string
+                  enum: [item]
+                  description: Target type
+                as:
+                  type: string
+                  enum: [read, saved, unsaved]
+                  description: Desired state
+                id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  description: Item id
+      responses:
+        "200":
+          description: Item state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /write/feed:
+    post:
+      operationId: markFeedRead
+      summary: Mark feed as read
+      description: |
+        Mark all items in a feed as read. To prevent marking newly received
+        (not yet cached) items as read, include the `before` parameter set
+        to the Unix timestamp of your most recent `items` API request.
+
+        | Parameter | Value |
+        |-----------|-------|
+        | `mark`    | `feed` |
+        | `as`      | `read` |
+        | `id`      | Feed id |
+        | `before`  | Unix timestamp *(recommended)* |
+      tags: [Write]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [mark, as, id]
+              properties:
+                mark:
+                  type: string
+                  enum: [feed]
+                as:
+                  type: string
+                  enum: [read]
+                id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  description: Feed id
+                before:
+                  type: integer
+                  format: int64
+                  description: Unix timestamp of the client's most recent items request
+      responses:
+        "200":
+          description: Feed marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /write/group:
+    post:
+      operationId: markGroupRead
+      summary: Mark group as read
+      description: |
+        Mark all items in a group as read.
+
+        - For user-created groups, set `id` to the group id.
+        - To mark the **"Kindling"** super group as read, set `id=0`.
+        - To mark the **"Sparks"** super group as read, set `id=-1`.
+
+        Include the `before` parameter set to the Unix timestamp of your
+        most recent `items` API request to avoid marking newly received
+        items as read.
+
+        | Parameter | Value |
+        |-----------|-------|
+        | `mark`    | `group` |
+        | `as`      | `read` |
+        | `id`      | Group id, `0` (Kindling), or `-1` (Sparks) |
+        | `before`  | Unix timestamp *(recommended)* |
+      tags: [Write]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [mark, as, id]
+              properties:
+                mark:
+                  type: string
+                  enum: [group]
+                as:
+                  type: string
+                  enum: [read]
+                id:
+                  type: integer
+                  format: int64
+                  description: >
+                    Group id. Use `0` for the "Kindling" super group
+                    or `-1` for the "Sparks" super group.
+                before:
+                  type: integer
+                  format: int64
+                  description: Unix timestamp of the client's most recent items request
+      responses:
+        "200":
+          description: Group marked as read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+  /write/unread-recently-read:
+    post:
+      operationId: unreadRecentlyRead
+      summary: Unread recently read items
+      description: |
+        Mark recently read items as unread. No additional parameters
+        are required.
+      tags: [Write]
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [unread_recently_read]
+              properties:
+                unread_recently_read:
+                  type: integer
+                  enum: [1]
+                  description: Must be `1`
+      responses:
+        "200":
+          description: Recently read items marked as unread
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResponse"
+        "4xx":
+          description: Client error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BaseResponse"
+
+# ═══════════════════════════════════════════════════════
+#  COMPONENTS
+# ═══════════════════════════════════════════════════════
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: query
+      name: api_key
+      description: >
+        MD5 checksum of `email:password`. Pass as a query parameter or
+        in POST body. POST takes precedence when both are present.
+
+  parameters:
+    ApiParam:
+      name: api
+      in: query
+      description: |
+        Required marker. Pass `api` (or `api=xml` for XML responses).
+      required: true
+      schema:
+        type: string
+        enum: ["", xml]
+        default: ""
+        description: "Pass empty string for JSON (default) or `xml` for XML."
+
+  # ──────────── Schemas ────────────
+
+  schemas:
+    # ── Base ──
+
+    BaseResponse:
+      type: object
+      properties:
+        api_version:
+          type: integer
+          description: Version of the API responding
+          example: 2
+        auth:
+          type: integer
+          description: "1 if authenticated, 0 otherwise"
+          enum: [0, 1]
+        last_refreshed_on_time:
+          type: integer
+          format: int64
+          description: Unix timestamp of the most recently refreshed feed
+
+    AuthResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+
+    # ── Groups ──
+
+    Group:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Group id
+          example: 1
+        title:
+          type: string
+          description: Group title (UTF-8)
+          example: Technology
+
+    FeedsGroup:
+      type: object
+      description: Maps a group to its feed ids
+      properties:
+        group_id:
+          type: integer
+          format: int64
+          description: Group id
+          example: 1
+        feed_ids:
+          type: string
+          description: Comma-separated list of feed ids
+          example: "3,7,12"
+
+    GroupsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            groups:
+              type: array
+              items:
+                $ref: "#/components/schemas/Group"
+            feeds_groups:
+              type: array
+              items:
+                $ref: "#/components/schemas/FeedsGroup"
+
+    # ── Feeds ──
+
+    Feed:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Feed id
+          example: 3
+        favicon_id:
+          type: integer
+          format: int64
+          description: Favicon id
+          example: 3
+        title:
+          type: string
+          description: Feed title (UTF-8)
+          example: "Hacker News"
+        url:
+          type: string
+          format: uri
+          description: Feed URL
+          example: "https://news.ycombinator.com/rss"
+        site_url:
+          type: string
+          format: uri
+          description: Site URL
+          example: "https://news.ycombinator.com"
+        is_spark:
+          type: integer
+          description: "1 if this is a Spark feed, 0 for Kindling"
+          enum: [0, 1]
+          example: 0
+        last_updated_on_time:
+          type: integer
+          format: int64
+          description: Unix timestamp of the feed's last update
+          example: 1609459200
+
+    FeedsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            feeds:
+              type: array
+              items:
+                $ref: "#/components/schemas/Feed"
+            feeds_groups:
+              type: array
+              items:
+                $ref: "#/components/schemas/FeedsGroup"
+
+    # ── Favicons ──
+
+    Favicon:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Favicon id
+          example: 3
+        data:
+          type: string
+          description: >
+            Base64-encoded image data prefixed by the image MIME type.
+            Suitable for use with the `data:` protocol.
+          example: "image/gif;base64,R0lGODlhAQABAIAAAObm5gAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=="
+
+    FaviconsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            favicons:
+              type: array
+              items:
+                $ref: "#/components/schemas/Favicon"
+
+    # ── Items ──
+
+    Item:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Item id
+          example: 42
+        feed_id:
+          type: integer
+          format: int64
+          description: Feed id this item belongs to
+          example: 3
+        title:
+          type: string
+          description: Item title (UTF-8)
+          example: "Show HN: My Cool Project"
+        author:
+          type: string
+          description: Item author (UTF-8)
+          example: "pg"
+        html:
+          type: string
+          description: Item content as HTML (UTF-8)
+        url:
+          type: string
+          format: uri
+          description: Item URL
+          example: "https://example.com/article"
+        is_saved:
+          type: integer
+          description: "1 if saved/bookmarked, 0 otherwise"
+          enum: [0, 1]
+          example: 0
+        is_read:
+          type: integer
+          description: "1 if read, 0 otherwise"
+          enum: [0, 1]
+          example: 0
+        created_on_time:
+          type: integer
+          format: int64
+          description: Unix timestamp of item creation
+          example: 1609459200
+
+    ItemsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Item"
+            total_items:
+              type: integer
+              format: int64
+              description: Total number of items in the database *(added in API v2)*
+              example: 12345
+
+    # ── Hot Links ──
+
+    Link:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Link id
+        feed_id:
+          type: integer
+          format: int64
+          description: Feed id (only valid when `is_item=1`)
+        item_id:
+          type: integer
+          format: int64
+          description: Item id (only valid when `is_item=1`)
+        temperature:
+          type: number
+          format: float
+          description: Hot link temperature
+          example: 42.5
+        is_item:
+          type: integer
+          description: "1 if this link corresponds to a saved item, 0 otherwise"
+          enum: [0, 1]
+        is_local:
+          type: integer
+          description: "1 if the source feed and favicon should be displayed"
+          enum: [0, 1]
+        is_saved:
+          type: integer
+          description: "1 if saved (only valid when `is_item=1`)"
+          enum: [0, 1]
+        title:
+          type: string
+          description: Link title (UTF-8)
+        url:
+          type: string
+          format: uri
+          description: Link URL
+        item_ids:
+          type: string
+          description: Comma-separated list of associated item ids
+
+    LinksResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            links:
+              type: array
+              items:
+                $ref: "#/components/schemas/Link"
+
+    # ── Sync ──
+
+    UnreadItemIdsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            unread_item_ids:
+              type: string
+              description: Comma-separated list of unread item ids
+              example: "1,2,3,5,8,13"
+
+    SavedItemIdsResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            saved_item_ids:
+              type: string
+              description: Comma-separated list of saved item ids
+              example: "4,9"
+
+    # ── Write ──
+
+    WriteResponse:
+      allOf:
+        - $ref: "#/components/schemas/BaseResponse"
+        - type: object
+          properties:
+            unread_item_ids:
+              type: string
+              description: Updated comma-separated list of unread item ids
+            saved_item_ids:
+              type: string
+              description: Updated comma-separated list of saved item ids
