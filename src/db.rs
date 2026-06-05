@@ -304,13 +304,19 @@ pub async fn get_read_item_ids_by_ids(d1: &D1Database, ids: &[u64]) -> Result<Ve
 }
 
 /// Get unread item IDs (all items minus those marked as read).
+///
+/// Uses NOT EXISTS instead of LEFT JOIN ... IS NULL for better SQLite
+/// query plan. With read_item_ids.item_id being INTEGER PRIMARY KEY,
+/// the inner subquery can short-circuit (stop at first match) rather than
+/// scanning all read IDs per item.
 pub async fn get_unread_item_ids(d1: &D1Database) -> Result<Vec<u64>> {
     let result = d1
         .prepare(
-            "SELECT items.id FROM items \
-             LEFT JOIN read_item_ids ON items.id = read_item_ids.item_id \
-             WHERE read_item_ids.item_id IS NULL \
-             ORDER BY items.id ASC",
+            "SELECT i.id FROM items i \
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM read_item_ids r WHERE r.item_id = i.id
+             ) \
+             ORDER BY i.id ASC",
         )
         .all()
         .await?;

@@ -54,6 +54,16 @@ CREATE INDEX IF NOT EXISTS idx_items_feed_id ON items(feed_id);
 CREATE INDEX IF NOT EXISTS idx_items_created_on ON items(created_on);
 CREATE INDEX IF NOT EXISTS idx_feeds_group_id ON feeds(group_id);
 
+-- Performance indexes for hot queries
+-- idx_items_saved: covers saved items listing
+CREATE INDEX IF NOT EXISTS idx_items_saved
+    ON items(is_saved, id);
+-- idx_feeds_last_fetched[_id]: covers feed scheduling query
+CREATE INDEX IF NOT EXISTS idx_feeds_last_fetched
+    ON feeds(last_fetched_on);
+CREATE INDEX IF NOT EXISTS idx_feeds_last_fetched_id
+    ON feeds(last_fetched_on, id);
+
 -- ── Dedup unique indexes ──
 -- These make INSERT OR IGNORE in the application code actually prevent
 -- duplicate items at the database level.
