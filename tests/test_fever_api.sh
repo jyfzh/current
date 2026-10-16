@@ -13,7 +13,7 @@
 
 set -uo pipefail
 
-# Bypass any proxy set in the environment — wrangler dev is local-only
+# Bypass any proxy set in the environment — cf dev is local-only
 unset ALL_PROXY https_proxy http_proxy
 
 BASE_URL="${FEVER_BASE_URL:-http://localhost:8787}"

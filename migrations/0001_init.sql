@@ -2,7 +2,7 @@
 -- Full schema for current: tables + indexes (including dedup unique indexes).
 -- Run this on a fresh D1 database to bootstrap.
 --
---   wrangler d1 execute current --file=migrations/init_current.sql
+--   cf d1 migrations apply <DATABASE_ID> --dir migrations
 --
 -- If migrating an existing database, also run dedup_items.sql after this
 -- to clean up any duplicate rows created before the unique indexes existed.

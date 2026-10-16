@@ -22,16 +22,18 @@ Thank you for considering contributing to **Current**! This document covers how 
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [Node.js](https://nodejs.org/) | 18+ | Runtime for unit tests and the Wrangler CLI |
-| [wrangler](https://developers.cloudflare.com/workers/wrangler/) | Latest | Local dev server & deploy |
+| [Node.js](https://nodejs.org/) | 22.18+ | Runtime for unit tests and the cf CLI |
+| [cf](https://developers.cloudflare.com/cf/) | Latest (installed by `npm install`) | Dev server, build, and deploy |
+| [Vite](https://vite.dev/) | 8+ (installed by `npm install`) | Bundler and dev server used by cf through the Cloudflare Vite plugin |
 
-There is no build step and no runtime dependency: the worker is plain ES
-modules deployed directly (`main` → `src/index.js`).
+There is no user-authored build step and no runtime dependency: the worker is
+plain ES modules (`cloudflare.config.ts` → `src/index.js`), bundled by Vite when
+you run `cf build` or `cf deploy`.
 
-Install wrangler globally (or use `npx wrangler`):
+Install project dependencies:
 
 ```bash
-npm install -g wrangler
+npm install
 ```
 
 ---
@@ -56,42 +58,47 @@ CURRENT_FEVER_EMAIL=admin
 
 ### 3. Configure bindings
 
-Edit `wrangler.jsonc` and make sure the `d1_databases` and `kv_namespaces` entries exist.
-The `database_id` and `id` values are only needed for remote deployment;
-for local development, `wrangler dev` auto-simulates them via Miniflare.
+Edit `cloudflare.config.ts` and make sure the `DB` (D1) and `CACHE` (KV) bindings exist.
+The IDs are only needed for remote deployment; for local development, `cf dev`
+auto-simulates them via Miniflare.
 
-### 4. Bootstrap the database schema (local)
+### 4. Bootstrap the local database
 
-This creates the tables in the local Miniflare-simulated D1:
+This creates the tables in the local D1 simulation
+(`.cloudflare/state/v3`), keyed by the database ID in `cloudflare.config.ts`:
 
 ```bash
-wrangler d1 execute DB --local --file=migrations/0001_init.sql
+npm run db:local
 ```
 
 ### 5. Seed test data (optional)
 
 ```bash
-wrangler d1 execute DB --local --file=tests/seed.sql
+npm run db:local -- --seed
 ```
 
 ### Run the worker locally
 
 ```bash
-wrangler dev
+npm run dev
 ```
 
-This starts a local server at `http://localhost:8787`. The worker automatically fetches feeds on the first request if `CURRENT_STARTUP_FETCH` is enabled (default: true). For development, you may want to disable it:
+This starts a local server at `http://localhost:8787`. The worker automatically fetches feeds on the first request if `CURRENT_STARTUP_FETCH` is enabled (default: true). For development, you may want to disable it in `.dev.vars`:
 
 ```env
 CURRENT_STARTUP_FETCH=false
 ```
 
+The port is set in `vite.config.ts` (`server.port`, default `8787`) because
+`cf dev` does not accept a `--port` flag in Vite projects. Export `CF_PORT` to
+override it, for example `CF_PORT=8789 npm run dev`.
+
 ### Iterative development flow
 
 1. Edit JavaScript in `src/`
 2. Run `npm test` for unit tests
-3. Run `wrangler dev` to test against real HTTP requests
-4. Deploy with `wrangler deploy`
+3. Run `npm run dev` to test against real HTTP requests
+4. Deploy with `npm run deploy`
 
 ---
 
@@ -114,8 +121,9 @@ Current test coverage includes:
 
 ### Integration tests
 
-The integration runner starts `wrangler dev`, applies migrations, seeds D1 and
-runs the Fever API suite (plus the unit tests) against the local worker:
+The integration runner starts `cf dev`, prepares and seeds local D1 with
+`tests/local-db-setup.sh`, and runs the Fever API suite (plus the unit tests)
+against the local worker:
 
 ```bash
 bash tests/setup-integration.sh
@@ -144,36 +152,43 @@ When contributing:
 ### 1. Create remote D1 database
 
 ```bash
-wrangler d1 create current-db
+npx cf d1 create --name current-db
 ```
 
-Copy the returned database ID into `wrangler.jsonc` → `d1_databases[0].database_id`.
+Copy the returned database ID into `cloudflare.config.ts` → `DB` → `id`.
 
 ### 2. Create remote KV namespace
 
 ```bash
-wrangler kv:namespace create current-cache
+npx cf kv namespaces create --title current-cache
 ```
 
-Copy the returned ID into `wrangler.jsonc` → `kv_namespaces[0].id`.
+Copy the returned namespace ID into `cloudflare.config.ts` → `CACHE` → `id`.
 
 ### 3. Initialize the database schema
 
 ```bash
-wrangler d1 execute current-db --remote --file=migrations/0001_init.sql
+npx cf d1 migrations apply <DATABASE_ID> --dir migrations
 ```
 
 ### 4. Set secrets
 
+`CURRENT_FEVER_PASSWORD` and `CURRENT_FEVER_EMAIL` are declared as required
+secrets in `cloudflare.config.ts`. Create a gitignored `.secrets` file and pass
+it to the deploy command:
+
 ```bash
-wrangler secret put CURRENT_FEVER_PASSWORD
-wrangler secret put CURRENT_FEVER_EMAIL
+cat > .secrets <<'EOF'
+CURRENT_FEVER_PASSWORD=<your-password>
+CURRENT_FEVER_EMAIL=<your-email>
+EOF
 ```
 
 ### 5. Deploy
 
 ```bash
-wrangler deploy
+npx cf auth login
+npm run deploy -- --secrets-file .secrets
 ```
 
 ---
@@ -184,7 +199,7 @@ wrangler deploy
 
 - **ES modules** — `"type": "module"`; use `import`/`export` with explicit `.js` extensions
 - **No runtime dependencies** — keep the worker self-contained; only dev tooling may be added
-- **No build step** — files must run as-is in the Workers runtime (`workerd`)
+- **No transpilation** — files must run as-is in the Workers runtime (`workerd`)
 - **Strict equality** — prefer `===` / `!==`; avoid implicit coercion
 - **Early returns** — keep functions flat and readable
 - **Error handling** — throw for unexpected failures, catch only where the original implementation handled the error (parse errors, cache failures, batch writes)
@@ -298,7 +313,7 @@ Before opening a PR, verify:
 - [ ] API changes are reflected in integration tests
 - [ ] Cache invalidation is correct for new mutations
 - [ ] Logging follows the structured format (`logInfo`/`logWarn`/`logError`)
-- [ ] `wrangler dev` runs the worker without startup errors
+- [ ] `npm run dev` runs the worker without startup errors
 
 ---
 

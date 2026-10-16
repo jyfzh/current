@@ -6,9 +6,16 @@
   "description": "Fever-compatible RSS reader backend running on Cloudflare Workers",
   "license": "MIT",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "cf dev",
+    "build": "cf build",
+    "deploy": "cf deploy",
+    "db:local": "bash tests/local-db-setup.sh",
     "test": "node --test tests/unit.test.js",
     "test:integration": "bash tests/setup-integration.sh"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^2.0.0-beta.v.0",
+    "cf": "^1.0.0-beta.17",
+    "vite": "^8.3.4"
   }
 }

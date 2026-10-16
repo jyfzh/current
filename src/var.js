@@ -1,10 +1,10 @@
 // Runtime configuration variables read from the Worker environment with
 // sensible defaults.
 //
-// All values are configured via `wrangler.jsonc` `vars` and can be overridden
-// per-environment with `wrangler secret put` (for secrets) or dashboard vars.
+// All values are configured in `cloudflare.config.ts` under `worker.env` and
+// can be overridden per-environment with secrets or dashboard vars.
 //
-// Each function falls back to the same default used in `wrangler.jsonc` `vars`,
+// Each function falls back to the same default used in `cloudflare.config.ts`,
 // so the worker works even when vars are not explicitly set.
 
 /**

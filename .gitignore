@@ -1,5 +1,6 @@
 node_modules/
-.wrangler
-.wrangler-dev.log
 .dev.vars
+.secrets
+.cloudflare/
+.cf-dev.log
 dist/

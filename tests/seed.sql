@@ -1,5 +1,6 @@
 -- Integration test seed data for local D1 emulation
--- Run via: wrangler d1 execute current --local --file=tests/seed.sql
+-- Applied by tests/local-db-setup.sh and tests/setup-integration.sh
+-- (cf d1 raw --local --batch).
 
 -- Groups
 INSERT OR IGNORE INTO groups (id, title, created_on) VALUES (1, 'Tech', 1700000000);

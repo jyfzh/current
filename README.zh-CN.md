@@ -4,22 +4,9 @@
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white) ![D1](https://img.shields.io/badge/D1-FFA116?style=for-the-badge&logo=cloudflare&logoColor=white)
 
-**Current** 是一个自托管的 RSS 阅读器后端，实现了 [Fever API](https://feedafever.com/api) 协议。使用**纯 JavaScript**（ES modules，无构建步骤、无运行时依赖）编写，运行在 **Cloudflare Workers** 上，以 D1 作为数据库、KV 作为缓存层。
+**Current** 是一个自托管的 RSS 阅读器后端，实现了 [Fever API](https://feedafever.com/api) 协议。使用**纯 JavaScript**（ES modules，无运行时依赖）编写，运行在 **Cloudflare Workers** 上，以 D1 作为数据库、KV 作为缓存层。
 
 可作为任何兼容 Fever 的 RSS 客户端（如 [Reeder](https://reederapp.com)、[fluent-reader](https://hyliu.me/fluent-reader) 等）的服务端同步引擎。
-
-[![部署到 Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jyfzh/current)
-
-> [!IMPORTANT]
-> **在点击上方按钮前请先完成以下步骤，否则部署将失败：**
->
-> 1. **Fork** 本仓库到你的 GitHub 账号
-> 2. **创建 D1 数据库** — 通过 Cloudflare Dashboard 或运行 `npx wrangler d1 create current-db`
-> 3. **创建 KV namespace** — 运行 `npx wrangler kv:namespace create current-cache`
-> 4. 将生成的 **database_id** 和 **KV id** 分别填入 `wrangler.jsonc` 中对应的字段
-> 5. 然后点击上方按钮，选择你的 fork 仓库进行部署
->
-> 部署完成后，还需**初始化数据库表结构**并**设置 secrets**，详见下方[部署](#部署)章节。
 
 ---
 
@@ -98,8 +85,7 @@
 
 ## 前置要求
 
-- [Node.js](https://nodejs.org/) 18+（用于 Wrangler CLI）
-- [wrangler](https://developers.cloudflare.com/workers/wrangler/) CLI（`npm install -g wrangler`）
+- [Node.js](https://nodejs.org/) 22.18+（[`cf` CLI](https://developers.cloudflare.com/cf/) 的要求）
 - 一个 [Cloudflare](https://cloudflare.com) 账号，需具备：
   - Workers 订阅（免费计划可用）
   - D1 数据库配额
@@ -112,65 +98,75 @@
 ```bash
 git clone https://github.com/jyfzh/current
 cd current
+npm install
 ```
 
-### 2. 配置 wrangler
+### 2. 配置 cloudflare.config.ts
 
-> **注意：** 项目是纯 JavaScript，无需构建步骤 —— `wrangler deploy` 会直接打包 `src/index.js`。
+`cloudflare.config.ts` 是 Worker 的配置来源：绑定、每小时 cron 触发器和运行时变量。项目是纯 JavaScript，无需用户编写构建脚本 —— `npm run build`（`cf build`）会通过 Cloudflare Vite 插件用 Vite 打包 `src/index.js`。
+
+`vite.config.ts` 配置打包器和本地开发服务器端口（默认 `8787`）。
 
 ### 3. 部署到生产环境
 
 #### 3a. 创建远程 D1 数据库
 
 ```bash
-wrangler d1 create current-db
+npx cf d1 create --name current-db
 ```
 
-该命令会输出一个数据库 ID。将其复制到 `wrangler.jsonc` 中：
+该命令会输出一个数据库 ID。将其复制到 `cloudflare.config.ts` 的 `DB` 绑定：
 
-```jsonc
-"d1_databases": [
-  {
-    "binding": "DB",
-    "database_id": "你的数据库ID"
-  }
-]
+```ts
+DB: bindings.d1({
+  id: "<数据库-ID>",
+}),
 ```
 
 #### 3b. 创建远程 KV namespace
 
 ```bash
-wrangler kv:namespace create current-cache
+npx cf kv namespaces create --title current-cache
 ```
 
-将输出的 ID 复制到 `wrangler.jsonc` 中：
+将输出的 namespace ID 复制到 `cloudflare.config.ts` 的 `CACHE` 绑定：
 
-```jsonc
-"kv_namespaces": [
-  {
-    "binding": "CACHE",
-    "id": "你的KV-ID"
-  }
-]
+```ts
+CACHE: bindings.kv({
+  id: "<namespace-ID>",
+}),
 ```
 
 #### 3c. 初始化远程数据库
 
 ```bash
-wrangler d1 execute current-db --remote --file=migrations/0001_init.sql
+npx cf d1 migrations apply <数据库-ID> --dir migrations
 ```
 
 #### 3d. 设置 secrets
 
+创建一个 `.secrets` 文件（已被 gitignore 忽略），使用 `.env` 格式：
+
 ```bash
-wrangler secret put CURRENT_FEVER_PASSWORD
-wrangler secret put CURRENT_FEVER_EMAIL
+cat > .secrets <<'EOF'
+CURRENT_FEVER_PASSWORD=<你的密码>
+CURRENT_FEVER_EMAIL=<你的邮箱>
+EOF
 ```
+
+这两个名称已在 `cloudflare.config.ts` 中声明为必需 secret。通过 `--secrets-file` 上传：
+
+```bash
+npx cf deploy --secrets-file .secrets
+```
+
+以后轮换 secret 时，更新 `.secrets` 并用相同参数部署；或用 `npx cf workers secrets update CURRENT_FEVER_PASSWORD --text <值> --worker current` 单独设置。
 
 #### 3e. 部署
 
 ```bash
-wrangler deploy
+npx cf auth login   # 仅首次需要
+npm run deploy      # 或：npx cf deploy
 ```
 
 部署后，你的 API 地址为：
@@ -195,7 +191,7 @@ curl "https://current.<你的子域名>.workers.dev/?api&api_key=$(echo -n '<邮
 
 ## 配置
 
-所有配置通过 Worker 环境变量进行（通过 `wrangler.jsonc` 的 `vars` 或 `wrangler secret put` 设置）：
+所有配置通过 Worker 环境变量进行，在 `cloudflare.config.ts` 中用 `bindings.text(...)`（普通变量）或 `bindings.secret()`（secrets）声明：
 
 ### Secrets（必填）
 
@@ -242,14 +238,24 @@ Current 使用 **Fever API 协议**，因此任何支持 Fever 同步的 RSS 阅
 2. 进入 **Workers & Pages** → **D1** → 选择你的数据库
 3. 使用 **Explorer Data** 标签页交互式运行 SQL 查询，或直接通过 UI 查看、添加、删除行
 
-#### Wrangler CLI
+#### cf CLI
 
 ```bash
-# 直接执行 SQL
-wrangler d1 execute current-db --remote --command="INSERT INTO groups (title) VALUES ('技术');"
+# 直接执行 SQL（使用 `cf d1 create` 输出的数据库 ID）
+npx cf d1 raw <数据库-ID> --sql "INSERT INTO groups (title) VALUES ('技术');"
 
-# 从 SQL 文件执行
-wrangler d1 execute current-db --remote --file=add_feeds.sql
+# 以 batch 方式执行 SQL 文件
+npx cf d1 raw <数据库-ID> --batch @queries.json
+```
+
+`queries.json` 是查询对象组成的 JSON 数组：
+
+```json
+[
+  {
+    "sql": "INSERT INTO feeds (title, url, site_url, group_id) VALUES ('示例博客', 'https://example.com/rss', 'https://example.com', 1);"
+  }
+]
 ```
 
 添加订阅源的 SQL 示例：
@@ -283,6 +289,7 @@ Fever API 协议的完整文档见 [`docs/fever-api.md`](docs/fever-api.md)，Op
 |----------|-----------------------------------------------|
 | 语言     | JavaScript（ES modules）                      |
 | 运行时   | Cloudflare Workers                            |
+| 工具链   | [`cf`](https://developers.cloudflare.com/cf/)（Cloudflare CLI，beta） |
 | 数据库   | Cloudflare D1（兼容 SQLite）                  |
 | 缓存     | Cloudflare KV                                |
 | 订阅源解析 | 内置解析器（RSS 2.0, Atom, JSON Feed）        |

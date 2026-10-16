@@ -4,22 +4,9 @@
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white) ![D1](https://img.shields.io/badge/D1-FFA116?style=for-the-badge&logo=cloudflare&logoColor=white)
 
-**Current** is a self-hosted RSS feed reader backend that implements the [Fever API](https://feedafever.com/api) protocol. Built with **plain JavaScript** (ES modules, no build step, no runtime dependencies), it runs on **Cloudflare Workers** with D1 as the database and KV as the cache layer.
+**Current** is a self-hosted RSS feed reader backend that implements the [Fever API](https://feedafever.com/api) protocol. Built with **plain JavaScript** (ES modules, no runtime dependencies), it runs on **Cloudflare Workers** with D1 as the database and KV as the cache layer.
 
 Use it as the server-side sync engine for any Fever-compatible RSS client — [Reeder](https://reederapp.com), [fluent-reader](https://hyliu.me/fluent-reader) and more.
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/jyfzh/current)
-
-> [!IMPORTANT]
-> **Do not click the button above before completing these steps, otherwise deployment will fail:**
->
-> 1. **Fork** this repository to your GitHub account
-> 2. **Create a D1 database** — via Cloudflare Dashboard or run `npx wrangler d1 create current-db`
-> 3. **Create a KV namespace** — run `npx wrangler kv:namespace create current-cache`
-> 4. Paste the generated **database_id** and **KV id** into the corresponding fields in `wrangler.jsonc`
-> 5. Then click the button above and select your fork to deploy
->
-> After deployment, you still need to **initialize the database schema** and **set secrets** — see the [Deployment](#deployment) section below for details.
 
 ---
 
@@ -97,8 +84,7 @@ Use it as the server-side sync engine for any Fever-compatible RSS client — [R
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+ (for the Wrangler CLI)
-- [wrangler](https://developers.cloudflare.com/workers/wrangler/) CLI (`npm install -g wrangler`)
+- [Node.js](https://nodejs.org/) 22.18+ (required by the [`cf` CLI](https://developers.cloudflare.com/cf/))
 - A [Cloudflare](https://cloudflare.com) account with:
   - Workers subscription (free plan works)
   - D1 database quota
@@ -111,65 +97,75 @@ Use it as the server-side sync engine for any Fever-compatible RSS client — [R
 ```bash
 git clone https://github.com/jyfzh/current
 cd current
+npm install
 ```
 
-### 2. Configure wrangler
+### 2. Configure cloudflare.config.ts
 
-> **Note:** The worker is plain JavaScript, so there is no build step — `wrangler deploy` bundles `src/index.js` directly.
+`cloudflare.config.ts` is the source of truth for the Worker: bindings, the hourly cron trigger, and runtime vars. The worker is plain JavaScript, so there is no user-authored build step — `npm run build` (`cf build`) bundles `src/index.js` with Vite through the Cloudflare Vite plugin.
+
+`vite.config.ts` configures the bundler and the local dev server port (default `8787`).
 
 ### 3. Deploy to production
 
 #### 3a. Create remote D1 database
 
 ```bash
-wrangler d1 create current-db
+npx cf d1 create --name current-db
 ```
 
-The command outputs a database ID. Copy it into `wrangler.jsonc`:
+The command outputs a database ID. Copy it into the `DB` binding in `cloudflare.config.ts`:
 
-```jsonc
-"d1_databases": [
-  {
-    "binding": "DB",
-    "database_id": "your-database-id-here"
-  }
-]
+```ts
+DB: bindings.d1({
+  id: "<database-id>",
+}),
 ```
 
 #### 3b. Create remote KV namespace
 
 ```bash
-wrangler kv:namespace create current-cache
+npx cf kv namespaces create --title current-cache
 ```
 
-Copy the output ID into `wrangler.jsonc`:
+Copy the output namespace ID into the `CACHE` binding in `cloudflare.config.ts`:
 
-```jsonc
-"kv_namespaces": [
-  {
-    "binding": "CACHE",
-    "id": "your-kv-id-here"
-  }
-]
+```ts
+CACHE: bindings.kv({
+  id: "<namespace-id>",
+}),
 ```
 
 #### 3c. Initialize the remote database
 
 ```bash
-wrangler d1 execute current-db --remote --file=migrations/0001_init.sql
+npx cf d1 migrations apply <database-id> --dir migrations
 ```
 
 #### 3d. Set secrets
 
+Create a `.secrets` file (it is gitignored) in `.env` format:
+
 ```bash
-wrangler secret put CURRENT_FEVER_PASSWORD
-wrangler secret put CURRENT_FEVER_EMAIL
+cat > .secrets <<'EOF'
+CURRENT_FEVER_PASSWORD=<your-password>
+CURRENT_FEVER_EMAIL=<your-email>
+EOF
 ```
+
+Both names are declared as required secrets in `cloudflare.config.ts`. Upload them with `--secrets-file`:
+
+```bash
+npx cf deploy --secrets-file .secrets
+```
+
+To rotate a secret later, update `.secrets` and deploy with the same flag, or set one individually with `npx cf workers secrets update CURRENT_FEVER_PASSWORD --text <value> --worker current`.
 
 #### 3e. Deploy
 
 ```bash
-wrangler deploy
+npx cf auth login   # first time only
+npm run deploy      # or: npx cf deploy
 ```
 
 After deployment, your API endpoint will be:
@@ -194,7 +190,7 @@ Expected response:
 
 ## Configuration
 
-All configuration is through Worker environment variables (set via `wrangler.jsonc` `vars` or `wrangler secret put`):
+All configuration is through Worker environment variables, set in `cloudflare.config.ts` with `bindings.text(...)` (vars) or `bindings.secret()` (secrets):
 
 ### Secrets (required)
 
@@ -241,14 +237,24 @@ You can execute SQL against the D1 database using either of the following method
 2. Navigate to **Workers & Pages** → **D1** → select your database
 3. Use the **Explorer Data** tab to run SQL queries interactively, or view, add, and delete rows directly through the UI
 
-#### Wrangler CLI
+#### cf CLI
 
 ```bash
-# Execute SQL directly
-wrangler d1 execute current-db --remote --command="INSERT INTO groups (title) VALUES ('Tech');"
+# Execute SQL directly (use the database ID shown by `cf d1 create`)
+npx cf d1 raw <database-id> --sql "INSERT INTO groups (title) VALUES ('Tech');"
 
-# Execute from a SQL file
-wrangler d1 execute current-db --remote --file=add_feeds.sql
+# Apply SQL from a file as a batch
+npx cf d1 raw <database-id> --batch @queries.json
+```
+
+`queries.json` is a JSON array of query objects:
+
+```json
+[
+  {
+    "sql": "INSERT INTO feeds (title, url, site_url, group_id) VALUES ('Example', 'https://example.com/feed.xml', 'https://example.com', 1);"
+  }
+]
 ```
 
 Example SQL to add feeds:
@@ -282,6 +288,7 @@ The Fever API protocol is fully documented in [`docs/fever-api.md`](docs/fever-a
 |-------|-----------|
 | Language | JavaScript (ES modules) |
 | Runtime | Cloudflare Workers |
+| Tooling | [`cf`](https://developers.cloudflare.com/cf/) (Cloudflare CLI, beta) |
 | Database | Cloudflare D1 (SQLite-compatible) |
 | Cache | Cloudflare KV |
 | Feed Parsing | Built-in parser (RSS 2.0, Atom, JSON Feed) |
