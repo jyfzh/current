@@ -1,11 +1,8 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "current",
-	"main": "build/index.js",
+	"main": "src/index.js",
 	"compatibility_date": "2026-05-11",
-	"build": {
-		"command": "cargo install -q worker-build && worker-build --release"
-	},
 	"d1_databases": [
 		{
 			"binding": "DB",

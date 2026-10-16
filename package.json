@@ -1,0 +1,14 @@
+{
+  "name": "current",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fever-compatible RSS reader backend running on Cloudflare Workers",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test tests/unit.test.js",
+    "test:integration": "bash tests/setup-integration.sh"
+  }
+}

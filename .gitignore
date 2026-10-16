@@ -1,5 +1,5 @@
-target/
-build/
-dist/
+node_modules/
 .wrangler
+.wrangler-dev.log
 .dev.vars
+dist/

@@ -2,9 +2,9 @@
 
 # Current — 兼容 Fever 协议的 RSS 阅读器后端
 
-![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white) ![D1](https://img.shields.io/badge/D1-FFA116?style=for-the-badge&logo=cloudflare&logoColor=white) ![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?style=for-the-badge&logo=webassembly&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white) ![D1](https://img.shields.io/badge/D1-FFA116?style=for-the-badge&logo=cloudflare&logoColor=white)
 
-**Current** 是一个自托管的 RSS 阅读器后端，实现了 [Fever API](https://feedafever.com/api) 协议。使用 **Rust** 编写并编译为 **WebAssembly**，运行在 **Cloudflare Workers** 上，以 D1 作为数据库、KV 作为缓存层。
+**Current** 是一个自托管的 RSS 阅读器后端，实现了 [Fever API](https://feedafever.com/api) 协议。使用**纯 JavaScript**（ES modules，无构建步骤、无运行时依赖）编写，运行在 **Cloudflare Workers** 上，以 D1 作为数据库、KV 作为缓存层。
 
 可作为任何兼容 Fever 的 RSS 客户端（如 [Reeder](https://reederapp.com)、[fluent-reader](https://hyliu.me/fluent-reader) 等）的服务端同步引擎。
 
@@ -45,7 +45,7 @@
 ## 功能特性
 
 - **Fever API v3** — 完整的读/同步协议实现：分组、订阅源、条目、已读/未读/收藏状态
-- **订阅源格式支持** — 通过 [`feed-rs`](https://crates.io/crates/feed-rs) 解析 **RSS 2.0**、**Atom** 和 **JSON Feed**
+- **订阅源格式支持** — 内置零依赖解析器，支持 **RSS 2.0**、**Atom** 和 **JSON Feed**
 - **并发抓取** — 并行抓取多个订阅源，支持可配置并发数
 - **定时自动同步** — 通过 Workers Cron Triggers 定时刷新订阅源（默认每小时）
 - **启动时抓取** — 部署后首次 HTTP 请求触发一次全量同步
@@ -65,15 +65,16 @@
           │ Fever API 协议
           ▼
 ┌──────────────────────────┐
-│   Cloudflare Worker      │  Rust → WebAssembly (worker-build)
+│   Cloudflare Worker      │  纯 JavaScript（ES modules）
 │   ┌──────────────────┐   │
-│   │  fever.rs        │   │  API 请求路由与响应
-│   │  auth.rs         │   │  md5(email:password) 认证
-│   │  fetcher.rs      │   │  并发 RSS 抓取与解析
-│   │  db.rs           │   │  D1 数据库访问层
-│   │  cache.rs        │   │  KV 缓存旁路层
-│   │  var.rs          │   │  环境变量运行时配置
-│   │  models.rs       │   │  数据模型与 Fever API 响应类型
+│   │  fever.js        │   │  API 请求路由与响应
+│   │  auth.js         │   │  md5(email:password) 认证
+│   │  fetcher.js      │   │  并发 RSS 抓取与解析
+│   │  feedparser.js   │   │  RSS / Atom / JSON Feed 解析
+│   │  db.js           │   │  D1 数据库访问层
+│   │  cache.js        │   │  KV 缓存旁路层
+│   │  var.js          │   │  环境变量运行时配置
+│   │  models.js       │   │  数据模型与 Fever API 响应类型
 │   └──────────────────┘   │
 └──────────────────────────┘
           │
@@ -97,8 +98,7 @@
 
 ## 前置要求
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://rustup.rs/)（最新稳定版）
+- [Node.js](https://nodejs.org/) 18+（用于 Wrangler CLI）
 - [wrangler](https://developers.cloudflare.com/workers/wrangler/) CLI（`npm install -g wrangler`）
 - 一个 [Cloudflare](https://cloudflare.com) 账号，需具备：
   - Workers 订阅（免费计划可用）
@@ -116,7 +116,7 @@ cd current
 
 ### 2. 配置 wrangler
 
-> **注意：** 项目使用 `worker-build`（通过 `cargo`）将 Rust 编译为 WebAssembly。`wrangler.jsonc` 中的 build 命令会自动处理。
+> **注意：** 项目是纯 JavaScript，无需构建步骤 —— `wrangler deploy` 会直接打包 `src/index.js`。
 
 ### 3. 部署到生产环境
 
@@ -281,11 +281,11 @@ Fever API 协议的完整文档见 [`docs/fever-api.md`](docs/fever-api.md)，Op
 
 | 层       | 技术                                          |
 |----------|-----------------------------------------------|
-| 语言     | Rust（edition 2024）                          |
-| 运行时   | Cloudflare Workers（通过 `worker-build` 编译为 WebAssembly） |
+| 语言     | JavaScript（ES modules）                      |
+| 运行时   | Cloudflare Workers                            |
 | 数据库   | Cloudflare D1（兼容 SQLite）                  |
 | 缓存     | Cloudflare KV                                |
-| 订阅源解析 | [`feed-rs`](https://crates.io/crates/feed-rs)（RSS 2.0, Atom, JSON Feed） |
+| 订阅源解析 | 内置解析器（RSS 2.0, Atom, JSON Feed）        |
 | 认证     | MD5（Fever 协议）                             |
 | 调度     | Workers Cron Triggers                        |
 

@@ -2,9 +2,9 @@
 
 # Current — Fever-compatible RSS Reader Backend
 
-![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white) ![D1](https://img.shields.io/badge/D1-FFA116?style=for-the-badge&logo=cloudflare&logoColor=white) ![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?style=for-the-badge&logo=webassembly&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![Cloudflare Workers](https://img.shields.io/badge/Cloudflare%20Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white) ![D1](https://img.shields.io/badge/D1-FFA116?style=for-the-badge&logo=cloudflare&logoColor=white)
 
-**Current** is a self-hosted RSS feed reader backend that implements the [Fever API](https://feedafever.com/api) protocol. Built with **Rust** and compiled to **WebAssembly**, it runs on **Cloudflare Workers** with D1 as the database and KV as the cache layer.
+**Current** is a self-hosted RSS feed reader backend that implements the [Fever API](https://feedafever.com/api) protocol. Built with **plain JavaScript** (ES modules, no build step, no runtime dependencies), it runs on **Cloudflare Workers** with D1 as the database and KV as the cache layer.
 
 Use it as the server-side sync engine for any Fever-compatible RSS client — [Reeder](https://reederapp.com), [fluent-reader](https://hyliu.me/fluent-reader) and more.
 
@@ -44,7 +44,7 @@ Use it as the server-side sync engine for any Fever-compatible RSS client — [R
 ## Features
 
 - **Fever API v3** — full read/sync protocol implementation: groups, feeds, items, read/unread/saved state
-- **Feed format support** — parses **RSS 2.0**, **Atom**, and **JSON Feed** subscriptions via [`feed-rs`](https://crates.io/crates/feed-rs)
+- **Feed format support** — parses **RSS 2.0**, **Atom**, and **JSON Feed** subscriptions with a built-in zero-dependency parser
 - **Concurrent feed fetching** — fetch multiple feeds in parallel with configurable concurrency
 - **Cron-based auto-sync** — periodic feed refreshing via Workers Cron Triggers (default: every hour)
 - **Startup fetch** — triggers an initial full sync on the first HTTP request after deployment
@@ -64,15 +64,16 @@ Use it as the server-side sync engine for any Fever-compatible RSS client — [R
           │ Fever API protocol
           ▼
 ┌──────────────────────────┐
-│   Cloudflare Worker      │  Rust → WebAssembly (worker-build)
+│   Cloudflare Worker      │  Plain JavaScript (ES modules)
 │   ┌──────────────────┐   │
-│   │  fever.rs        │   │  API request routing & response
-│   │  auth.rs         │   │  md5(email:password) authentication
-│   │  fetcher.rs      │   │  Concurrent RSS feed fetching & parsing
-│   │  db.rs           │   │  D1 database access layer
-│   │  cache.rs        │   │  KV-backed cache-aside layer
-│   │  var.rs          │   │  Runtime configuration from env vars
-│   │  models.rs       │   │  Data models & Fever API response types
+│   │  fever.js        │   │  API request routing & response
+│   │  auth.js         │   │  md5(email:password) authentication
+│   │  fetcher.js      │   │  Concurrent RSS feed fetching & parsing
+│   │  feedparser.js   │   │  RSS / Atom / JSON Feed parsing
+│   │  db.js           │   │  D1 database access layer
+│   │  cache.js        │   │  KV-backed cache-aside layer
+│   │  var.js          │   │  Runtime configuration from env vars
+│   │  models.js       │   │  Data models & Fever API response types
 │   └──────────────────┘   │
 └──────────────────────────┘
           │
@@ -96,8 +97,7 @@ Use it as the server-side sync engine for any Fever-compatible RSS client — [R
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://rustup.rs/) (latest stable)
+- [Node.js](https://nodejs.org/) 18+ (for the Wrangler CLI)
 - [wrangler](https://developers.cloudflare.com/workers/wrangler/) CLI (`npm install -g wrangler`)
 - A [Cloudflare](https://cloudflare.com) account with:
   - Workers subscription (free plan works)
@@ -115,7 +115,7 @@ cd current
 
 ### 2. Configure wrangler
 
-> **Note:** The project uses `worker-build` (via `cargo`) to compile Rust to WebAssembly. The `wrangler.jsonc` build command handles this automatically.
+> **Note:** The worker is plain JavaScript, so there is no build step — `wrangler deploy` bundles `src/index.js` directly.
 
 ### 3. Deploy to production
 
@@ -280,11 +280,11 @@ The Fever API protocol is fully documented in [`docs/fever-api.md`](docs/fever-a
 
 | Layer | Technology |
 |-------|-----------|
-| Language | Rust (edition 2024) |
-| Runtime | Cloudflare Workers (WebAssembly via `worker-build`) |
+| Language | JavaScript (ES modules) |
+| Runtime | Cloudflare Workers |
 | Database | Cloudflare D1 (SQLite-compatible) |
 | Cache | Cloudflare KV |
-| Feed Parsing | [`feed-rs`](https://crates.io/crates/feed-rs) (RSS 2.0, Atom, JSON Feed) |
+| Feed Parsing | Built-in parser (RSS 2.0, Atom, JSON Feed) |
 | Auth | MD5 (Fever protocol) |
 | Scheduling | Workers Cron Triggers |
 

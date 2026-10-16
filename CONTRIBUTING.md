@@ -22,12 +22,13 @@ Thank you for considering contributing to **Current**! This document covers how 
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| [Rust](https://rustup.rs/) | Latest stable (edition 2024) | Compile to WebAssembly |
-| [Node.js](https://nodejs.org/) | 18+ | Wrangler CLI runtime |
+| [Node.js](https://nodejs.org/) | 18+ | Runtime for unit tests and the Wrangler CLI |
 | [wrangler](https://developers.cloudflare.com/workers/wrangler/) | Latest | Local dev server & deploy |
-| [worker-build](https://github.com/cloudflare/workers-sdk/tree/main/packages/worker-build) | Latest | Compiles Rust to Worker WASM bundle |
 
-Install wrangler globally:
+There is no build step and no runtime dependency: the worker is plain ES
+modules deployed directly (`main` → `src/index.js`).
+
+Install wrangler globally (or use `npx wrangler`):
 
 ```bash
 npm install -g wrangler
@@ -85,29 +86,12 @@ This starts a local server at `http://localhost:8787`. The worker automatically 
 CURRENT_STARTUP_FETCH=false
 ```
 
-## Build for production
-
-```bash
-wrangler build
-```
-
-Output goes to `build/`:
-
-```
-build/
-├── index.js          # JavaScript shim
-├── index_bg.wasm     # Compiled WebAssembly binary
-├── worker/           # Worker module output
-└── package.json
-```
-
 ### Iterative development flow
 
-1. Edit Rust code in `src/`
-2. Run `cargo check` for fast type-checking
-3. Run `cargo test` for unit tests
-4. Run `wrangler dev` to test against real HTTP requests
-5. Deploy with `wrangler deploy`
+1. Edit JavaScript in `src/`
+2. Run `npm test` for unit tests
+3. Run `wrangler dev` to test against real HTTP requests
+4. Deploy with `wrangler deploy`
 
 ---
 
@@ -115,27 +99,35 @@ build/
 
 ### Unit tests
 
-Rust unit tests are co-located with source files using `#[cfg(test)] mod tests`:
+Unit tests run on Node's built-in test runner (no dependencies):
 
 ```bash
-cargo test
+npm test
 ```
 
 Current test coverage includes:
-- **`auth.rs`** — secure_eq constant-time comparison, authentication logic
-- **`fetcher.rs`** — concurrency window calculation, author extraction cascading fallback, content extraction priority
-- **`models.rs`** — FeverResponse serialization (unauth, ok, full response), all DTO round-trips, backwards compatibility for old cache entries
+- **`md5.js` / `auth.js`** — known MD5 vectors, unicode input, `secureEq` constant-time comparison, authentication logic
+- **`feedparser.js` / `xml.js`** — RSS 2.0, Atom, RSS 1.0 and JSON Feed mapping, entity/CDATA handling, author extraction fallback chain, content extraction priority
+- **`models.js`** — FeverResponse serialization (exact field order and omission)
+- **`fetcher.js`** — concurrency window calculation, summary semantics
+- **`var.js` / `cache.js`** — configuration parsing, cache hit/miss and selective invalidation
 
 ### Integration tests
 
-Integration tests require a running instance (local or deployed) and a configured D1 database:
+The integration runner starts `wrangler dev`, applies migrations, seeds D1 and
+runs the Fever API suite (plus the unit tests) against the local worker:
 
 ```bash
-# Set up test data
 bash tests/setup-integration.sh
+```
 
-# Run the test suite
-bash tests/test_fever_api.sh
+To run just the API suite against an already-running instance:
+
+```bash
+FEVER_BASE_URL="http://localhost:8787" \
+CURRENT_FEVER_PASSWORD=dev-test-key \
+CURRENT_FEVER_EMAIL=admin \
+  bash tests/test_fever_api.sh
 ```
 
 ### Adding tests
@@ -190,24 +182,26 @@ wrangler deploy
 
 ### General
 
-- **Rust edition 2024** — use modern Rust idioms (`impl Trait`, `let-else`, etc.)
-- **Formatting** — `rustfmt` is enforced. Run `cargo fmt` before committing.
-- **Clippy** — run `cargo clippy` and address all warnings
-- **No unwrap in production code** — use `?` (error propagation), `.ok()`, or explicit error handling. `unwrap()` is acceptable only in tests.
-- **Error messages** — be descriptive: include relevant identifiers (feed_id, URL, etc.) in `log_warn!` / `log_error!` messages
+- **ES modules** — `"type": "module"`; use `import`/`export` with explicit `.js` extensions
+- **No runtime dependencies** — keep the worker self-contained; only dev tooling may be added
+- **No build step** — files must run as-is in the Workers runtime (`workerd`)
+- **Strict equality** — prefer `===` / `!==`; avoid implicit coercion
+- **Early returns** — keep functions flat and readable
+- **Error handling** — throw for unexpected failures, catch only where the original implementation handled the error (parse errors, cache failures, batch writes)
 
 ### Module patterns
 
-- **Database queries** (`db.rs`) — each function takes `&D1Database`, returns `Result<T>`. Use `JsValue` bindings for parameters.
-- **Cache layer** (`cache.rs`) — use `cache_or_compute()` for read paths. Every mutation must call `invalidate()` with the appropriate `CacheEvent`.
-- **Handler functions** (`fever.rs`) — one sub-handler per API endpoint, named `handle_<endpoint>`. All take `&Env`, `&D1Database`, `&KvStore`.
-- **Configuration** (`var.rs`) — one function per config key, with doc comments showing the env var name, default value, and behavior.
+- **Database queries** (`db.js`) — each function takes the D1 binding (`d1`) as its first argument and returns plain rows. Queries and bindings match the SQL documented in `migrations/`.
+- **Cache layer** (`cache.js`) — use `cacheOrCompute()` for read paths. Every mutation must call `invalidate()` with the appropriate `CacheEvent`.
+- **Handler functions** (`fever.js`) — one sub-handler per API endpoint, named `handle<Endpoint>`. All take `env`, `d1`, `kv`.
+- **Feed parsing** (`feedparser.js` / `xml.js`) — mirrors the subset of `feed-rs` behavior the worker relies on; keep the mapping tables and fallback order in sync when extending format support.
+- **Configuration** (`var.js`) — one function per config key, with doc comments showing the env var name, default value, and behavior.
 
 ### Naming
 
-- `snake_case` for functions, variables, and module names
-- `PascalCase` for types and enum variants
-- `SCREAMING_SNAKE_CASE` for constants and static variables
+- `camelCase` for functions and variables
+- `PascalCase` for classes
+- `UPPER_SNAKE_CASE` for module-level constants
 - Env var prefix: `CURRENT_` for all Current-specific variables
 - Cache keys: prefix `cache:` (e.g., `cache:feeds`, `cache:unread_ids`)
 
@@ -215,30 +209,25 @@ wrangler deploy
 
 Order imports in groups separated by blank lines:
 
-```rust
-// 1. External crate imports
-use worker::*;
-use serde::{Deserialize, Serialize};
+```js
+// 1. Internal modules
+import * as db from "./db.js";
+import { logWarn } from "./log.js";
 
-// 2. Internal crate imports
-use crate::db;
-use crate::models::*;
-
-// 3. Standard library
-use std::sync::Once;
+// 2. (No external runtime dependencies)
 ```
 
 ---
 
 ## Logging & Observability
 
-Use the structured logging macros from `log.rs`:
+Use the structured logging helpers from `log.js`:
 
-| Macro | Prefix | When to use |
-|-------|--------|-------------|
-| `log_info!` | `[INFO]` | Normal operational events (feed fetched, startup, cache stats) |
-| `log_warn!` | `[WARN]` | Handled errors (parse errors, cache write failures, invalid URL) |
-| `log_error!` | `[ERROR]` | Failures needing investigation (binding errors, fetch failures) |
+| Helper | Prefix | When to use |
+|--------|--------|-------------|
+| `logInfo()` | `[INFO]` | Normal operational events (feed fetched, startup, cache stats) |
+| `logWarn()` | `[WARN]` | Handled errors (parse errors, cache write failures, invalid URL) |
+| `logError()` | `[ERROR]` | Failures needing investigation (binding errors, fetch failures) |
 
 All logs appear in the Cloudflare Dashboard under Workers & Pages > your worker > Logs.
 
@@ -246,13 +235,11 @@ All logs appear in the Cloudflare Dashboard under Workers & Pages > your worker 
 
 For latency-sensitive handlers, log timing information:
 
-```rust
-let started = chrono::Utc::now();
+```js
+const started = Date.now();
 // ... handler logic ...
-crate::log_info!(
-    "perf route=fever.items total_items={} duration_ms={}",
-    total_items,
-    (chrono::Utc::now() - started).num_milliseconds().max(0)
+logInfo(
+  `perf route=fever.items total_items=${totalItems} duration_ms=${Math.max(0, Date.now() - started)}`,
 );
 ```
 
@@ -267,13 +254,11 @@ Current uses a **cache-aside** pattern with KV:
 
 When adding new cached data:
 
-```rust
-// Read with cache
-pub async fn get_my_data_cached(d1: &D1Database, kv: &KvStore, env: &Env) -> Result<MyData> {
-    cache_or_compute(kv, "cache:my_key", var::cache_ttl_structural(env), async {
-        db::get_my_data(d1).await
-    })
-    .await
+```js
+export async function getMyDataCached(d1, kv, env) {
+  return cacheOrCompute(kv, "cache:my_key", varModule.cacheTtlStructural(env), () =>
+    db.getMyData(d1),
+  );
 }
 ```
 
@@ -294,14 +279,10 @@ Always define a `CacheEvent` variant for invalidation and call it in the appropr
    ```
 4. **Test** — ensure all unit tests pass and integration tests are green:
    ```bash
-   cargo test
-   cargo clippy -- -D warnings
+   npm test
+   bash tests/setup-integration.sh
    ```
-5. **Format** — ensure code is formatted:
-   ```bash
-   cargo fmt --check
-   ```
-6. **Open a PR** — against the `master` branch. Include:
+5. **Open a PR** — against the `master` branch. Include:
    - Description of changes
    - Related issue number (if applicable)
    - Testing instructions
@@ -311,13 +292,12 @@ Always define a `CacheEvent` variant for invalidation and call it in the appropr
 
 Before opening a PR, verify:
 
-- [ ] `cargo test` passes
-- [ ] `cargo clippy` is clean
-- [ ] `cargo fmt --check` passes
+- [ ] `npm test` passes
+- [ ] `bash tests/setup-integration.sh` passes
 - [ ] New code has unit tests
 - [ ] API changes are reflected in integration tests
 - [ ] Cache invalidation is correct for new mutations
-- [ ] Logging follows the structured format (`log_info!`/`log_warn!`/`log_error!`)
+- [ ] Logging follows the structured format (`logInfo`/`logWarn`/`logError`)
 - [ ] `wrangler dev` runs the worker without startup errors
 
 ---
