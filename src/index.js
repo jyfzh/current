@@ -1,6 +1,7 @@
 // Worker entry point: HTTP fetch handling, CORS, startup fetch and cron sync.
 
 import * as cache from "./cache.js";
+import { handleAdminRequest } from "./admin.js";
 import * as fetcher from "./fetcher.js";
 import * as fever from "./fever.js";
 import { formatError, logError, logInfo } from "./log.js";
@@ -19,6 +20,12 @@ export default {
    * @param {ExecutionContext} ctx
    */
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    // Keep the management surface separate from Fever, including its CORS policy.
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/") ||
+        (url.pathname === "/" && !url.searchParams.has("api"))) {
+      return handleAdminRequest(request, env);
+    }
     // Handle CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, {

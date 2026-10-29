@@ -10,7 +10,7 @@
     "build": "cf build",
     "deploy": "cf deploy",
     "db:local": "bash tests/local-db-setup.sh",
-    "test": "node --test tests/unit.test.js",
+    "test": "node --test tests/unit.test.js tests/admin.test.js",
     "test:integration": "bash tests/setup-integration.sh"
   },
   "devDependencies": {

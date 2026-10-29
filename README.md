@@ -227,7 +227,13 @@ Current speaks the **Fever API protocol**, so any RSS reader that supports Fever
 
 ### Adding feeds
 
-Currently feeds must be added directly to the D1 database (the Fever API write endpoints for feed/group management are not yet implemented).
+Open `/` or `/admin` to access the Chinese-language management dashboard. Sign in with `CURRENT_FEVER_EMAIL` (defaults to `admin`) and `CURRENT_FEVER_PASSWORD`.
+
+The dashboard supports adding, editing, deleting, searching and filtering feeds; creating, renaming and deleting groups; inspecting unread counts and HTTP fetch status; and refreshing individual feeds. Deleting a group preserves its feeds as ungrouped. Deleting a feed also deletes its articles, saved state and read history, after confirmation.
+
+Management endpoints live under `/admin/api/`, separate from the unchanged `/?api` Fever protocol. Credentials stay in page memory only; reloading requires signing in again. Use HTTPS in production. A successful HTTP status does not guarantee successful feed parsing; consult service logs for parsing details. No additional migrations or runtime dependencies are required.
+
+For bulk maintenance, you can also add feeds directly to D1:
 
 You can execute SQL against the D1 database using either of the following methods:
 

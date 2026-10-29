@@ -49,10 +49,10 @@ export async function getGroup(d1, id) {
 
 export async function createGroup(d1, title) {
   const now = Math.floor(Date.now() / 1000);
-  await run(d1, "INSERT INTO groups (title, created_on) VALUES (?, ?)", [title, now]);
   const rows = await all(
     d1,
-    "SELECT id, title, created_on FROM groups WHERE id = last_insert_rowid()",
+    "INSERT INTO groups (title, created_on) VALUES (?, ?) RETURNING id, title, created_on",
+    [title, now],
   );
   if (rows.length === 0) {
     throw new Error("failed to retrieve created group");
@@ -66,8 +66,10 @@ export async function updateGroup(d1, id, title) {
 
 export async function deleteGroup(d1, id) {
   // Move feeds in this group to group_id = 0 (ungrouped)
-  await run(d1, "UPDATE feeds SET group_id = 0 WHERE group_id = ?", [id]);
-  await run(d1, "DELETE FROM groups WHERE id = ?", [id]);
+  await d1.batch([
+    d1.prepare("UPDATE feeds SET group_id = 0 WHERE group_id = ?").bind(id),
+    d1.prepare("DELETE FROM groups WHERE id = ?").bind(id),
+  ]);
 }
 
 export async function countFeedsInGroup(d1, groupId) {
@@ -81,6 +83,22 @@ export async function listFeeds(d1) {
   return all(d1, `SELECT ${FEED_COLUMNS} FROM feeds ORDER BY id ASC`);
 }
 
+export async function listFeedsWithCounts(d1) {
+  return all(d1, `SELECT f.*, COALESCE(c.item_count, 0) AS item_count,
+    COALESCE(c.unread_count, 0) AS unread_count FROM feeds f LEFT JOIN (
+      SELECT i.feed_id, COUNT(*) AS item_count,
+        SUM(CASE WHEN r.item_id IS NULL THEN 1 ELSE 0 END) AS unread_count
+      FROM items i LEFT JOIN read_item_ids r ON r.item_id = i.id GROUP BY i.feed_id
+    ) c ON c.feed_id = f.id ORDER BY f.id DESC`);
+}
+
+export async function updateFeed(d1, id, title, url, siteUrl, groupId) {
+  await run(d1, `UPDATE feeds SET title = ?, site_url = ?, group_id = ?,
+    last_fetched_on = CASE WHEN url != ? THEN 0 ELSE last_fetched_on END,
+    last_http_status = CASE WHEN url != ? THEN 0 ELSE last_http_status END,
+    url = ? WHERE id = ?`, [title, siteUrl, groupId, url, url, url, id]);
+}
+
 export async function getFeed(d1, id) {
   const rows = await all(d1, `SELECT ${FEED_COLUMNS} FROM feeds WHERE id = ?`, [id]);
   return rows.length > 0 ? rows[rows.length - 1] : null;
@@ -88,13 +106,12 @@ export async function getFeed(d1, id) {
 
 export async function createFeed(d1, title, url, siteUrl, groupId) {
   const now = Math.floor(Date.now() / 1000);
-  await run(
+  const rows = await all(
     d1,
     "INSERT INTO feeds (title, url, site_url, group_id, last_fetched_on, last_http_status, created_on) \
-     VALUES (?, ?, ?, ?, 0, 0, ?)",
+     VALUES (?, ?, ?, ?, 0, 0, ?) RETURNING " + FEED_COLUMNS,
     [title, url, siteUrl, groupId, now],
   );
-  const rows = await all(d1, `SELECT ${FEED_COLUMNS} FROM feeds WHERE id = last_insert_rowid()`);
   if (rows.length === 0) {
     throw new Error("failed to retrieve created feed");
   }
@@ -102,16 +119,11 @@ export async function createFeed(d1, title, url, siteUrl, groupId) {
 }
 
 export async function deleteFeed(d1, id) {
-  // Delete associated read_item_ids first
-  await run(
-    d1,
-    "DELETE FROM read_item_ids WHERE item_id IN (SELECT id FROM items WHERE feed_id = ?)",
-    [id],
-  );
-  // Delete items belonging to this feed
-  await run(d1, "DELETE FROM items WHERE feed_id = ?", [id]);
-  // Delete the feed itself
-  await run(d1, "DELETE FROM feeds WHERE id = ?", [id]);
+  await d1.batch([
+    d1.prepare("DELETE FROM read_item_ids WHERE item_id IN (SELECT id FROM items WHERE feed_id = ?)").bind(id),
+    d1.prepare("DELETE FROM items WHERE feed_id = ?").bind(id),
+    d1.prepare("DELETE FROM feeds WHERE id = ?").bind(id),
+  ]);
 }
 
 export async function listFeedsByGroup(d1) {

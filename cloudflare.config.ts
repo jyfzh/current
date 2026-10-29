@@ -20,10 +20,10 @@ export default defineConfig({
 			CURRENT_FEVER_PASSWORD: bindings.secret(),
 			CURRENT_FEVER_EMAIL: bindings.secret(),
 			DB: bindings.d1({
-				id: "your-database-id-here",
+				id: "2c6c6a77-87fb-43df-8bff-672b5e8ec847",
 			}),
 			CACHE: bindings.kv({
-				id: "your-kv-id-here",
+				id: "06bd7e4e2c4a4fc392a2c7efa63d11fe",
 			}),
 		},
 	},
